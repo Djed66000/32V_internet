@@ -2,32 +2,39 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Pico 2W - v2.1.0 (Watchdog)</title>
+    <title>Pico 2W - v2.1.1 (Final Control)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
     <style>
-        :root { --bg: #121212; --card: #1e1e1e; --orange: #e67e22; --accent: #27ae60; --error: #c0392b; --warn: #f1c40f; }
+        :root { 
+            --bg: #121212; --card: #1e1e1e; --orange: #e67e22; 
+            --accent: #27ae60; --error: #c0392b; --warn: #f1c40f; 
+            --blue: #2980b9; --blue-dark: #1c5982;
+        }
         body { font-family: sans-serif; background: var(--bg); color: white; margin: 0; padding: 10px; }
         
-        .controls { position: sticky; top: 0; background: var(--bg); padding: 15px; z-index: 100; border-bottom: 2px solid #333; transition: 0.3s; }
+        .controls { position: sticky; top: 0; background: var(--bg); padding: 15px; z-index: 100; border-bottom: 2px solid #333; }
         .status-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
         
         #status-label { padding: 6px 12px; border-radius: 4px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; }
-        .state-offline { background: var(--error); color: white; box-shadow: 0 0 10px var(--error); }
+        .state-offline { background: var(--error); color: white; }
         .state-online { background: var(--accent); color: white; }
-        .state-warn { background: var(--warn); color: black; } /* Connecté au serveur mais Pico muet */
+        .state-warn { background: var(--warn); color: black; }
 
         .ping-led { width: 14px; height: 14px; border-radius: 50%; background: #222; border: 2px solid #444; }
         .ping-flash { background: #00ff00; box-shadow: 0 0 15px #00ff00; border-color: #fff; }
 
+        /* BOUTONS BLEUS POUR LES MODES */
         .mode-selector { display: flex; gap: 10px; margin-bottom: 15px; }
-        .mode-btn { flex: 1; padding: 10px; border: none; border-radius: 6px; background: #333; color: white; cursor: pointer; }
-        .mode-active { background: var(--orange); }
+        .mode-btn { flex: 1; padding: 10px; border: none; border-radius: 6px; background: var(--blue-dark); color: #ccc; cursor: pointer; font-weight: bold; }
+        .mode-active { background: var(--blue); color: white; box-shadow: 0 0 8px var(--blue); }
 
         .btn-group { display: flex; flex-wrap: wrap; gap: 8px; }
         .btn-pct { flex: 1; background: var(--orange); color: white; font-weight: bold; border: none; border-radius: 6px; padding: 12px; cursor: pointer; min-width: 60px; }
-        .btn-send { background: var(--accent); color: white; width: 100%; margin-top: 15px; padding: 15px; font-size: 1.1em; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
-        button:disabled { opacity: 0.3; cursor: not-allowed; }
+        
+        /* BOUTON ENVOYER DYNAMIQUE */
+        .btn-send { background: var(--accent); color: white; width: 100%; margin-top: 15px; padding: 15px; font-size: 1.1em; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        .btn-send:disabled { background: #555 !important; color: #888 !important; cursor: not-allowed; box-shadow: none !important; }
 
         .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(85px, 1fr)); gap: 10px; margin-top: 15px; }
         .slider-card { background: var(--card); padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #333; }
@@ -47,8 +54,8 @@
     </div>
 
     <div class="mode-selector">
-        <button id="m100" class="mode-btn mode-active" onclick="setMode(100)">0-100</button>
-        <button id="m1000" class="mode-btn" onclick="setMode(1000)">0-1000</button>
+        <button id="m100" class="mode-btn mode-active" onclick="setMode(100)">0-100 (Bleu)</button>
+        <button id="m1000" class="mode-btn" onclick="setMode(1000)">0-1000 (Bleu)</button>
     </div>
 
     <div class="btn-group">
@@ -59,7 +66,7 @@
         <button class="btn-pct" onclick="quickSet(1)">100%</button>
     </div>
     
-    <button id="main-send-btn" class="btn-send" onclick="sendToPico()">ENVOYER VERS RS485</button>
+    <button id="main-send-btn" class="btn-send" onclick="sendToPico()" disabled>ENVOYER VERS RS485</button>
 </div>
 
 <div id="grid" class="grid-container"></div>
@@ -67,23 +74,29 @@
 <script>
     let currentMax = 100; 
     let values = new Array(32).fill(0);
-    let lastPongTime = 0; // Timestamp du dernier pong reçu
+    let lastPongTime = 0; 
     const client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
 
-    // --- GESTION DU STATUT RÉEL ---
-    function checkConnection() {
+    function updateStatusUI() {
         const label = document.getElementById('status-label');
+        const sendBtn = document.getElementById('main-send-btn');
         const now = Date.now();
         
+        let isPicoAlive = (now - lastPongTime < 12000); // 12 secondes de battement
+        
         if (!client.connected) {
-            label.innerText = "SERVEUR DÉCONNECTÉ ❌";
+            label.innerText = "SERVEUR HORS LIGNE ❌";
             label.className = "state-offline";
-        } else if (now - lastPongTime > 12000) { // Pas de réponse du Pico depuis 12s
+            sendBtn.disabled = true;
+        } else if (!isPicoAlive) {
             label.innerText = "PICO HORS LIGNE ⚠️";
             label.className = "state-warn";
+            sendBtn.disabled = true;
+            document.getElementById('last-ping').innerText = "PICO : PERDU";
         } else {
             label.innerText = "SYSTÈME PRÊT ✅";
             label.className = "state-online";
+            sendBtn.disabled = false;
         }
     }
 
@@ -99,10 +112,8 @@
         }
     });
 
-    // Surveillance toutes les 2 secondes
-    setInterval(checkConnection, 2000);
+    setInterval(updateStatusUI, 1000);
 
-    // --- ACTIONS SLIDERS ---
     function setMode(m) {
         currentMax = m;
         document.getElementById('m100').className = m === 100 ? 'mode-btn mode-active' : 'mode-btn';
@@ -139,12 +150,11 @@
     }
 
     function sendToPico() {
-        if(client.connected) {
+        if(client.connected && !document.getElementById('main-send-btn').disabled) {
             client.publish('p32h/remote/99/cmd', currentMax + ":" + values.join(','));
         }
     }
 
-    // Ping toutes les 5s
     setInterval(() => { if(client.connected) client.publish('p32h/remote/99/cmd', 'PING'); }, 5000);
 
     createSliders();
