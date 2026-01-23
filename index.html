@@ -1,39 +1,100 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Global RS485 Control</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pico 2W - RS485 Master</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding-top: 100px; background: #1a1a1a; color: white; }
-        .btn { 
-            background: #27ae60; border: none; color: white; 
-            padding: 40px 80px; font-size: 28px; border-radius: 20px; 
-            cursor: pointer; box-shadow: 0 8px #1e8449; 
-        }
-        .btn:active { transform: translateY(4px); box-shadow: 0 4px #1e8449; }
-        #status { margin-top: 20px; color: #f1c40f; }
+        :root { --bg: #121212; --card: #1e1e1e; --accent: #27ae60; }
+        body { font-family: sans-serif; background: var(--bg); color: white; margin: 0; padding: 10px; }
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 10px; padding: 10px; }
+        .slider-card { background: var(--card); padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #333; }
+        input[type=range] { width: 100%; height: 80px; writing-mode: bt-lr; appearance: slider-vertical; }
+        .controls { position: sticky; top: 0; background: var(--bg); padding: 15px; z-index: 100; border-bottom: 2px solid var(--accent); }
+        .btn-group { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+        button { flex: 1; padding: 10px; border: none; border-radius: 5px; color: white; font-weight: bold; cursor: pointer; }
+        .btn-pct { background: #34495e; }
+        .btn-send { background: var(--accent); font-size: 1.2em; margin-top: 10px; width: 100%; }
+        #status { padding: 5px; border-radius: 4px; font-size: 0.8em; display: inline-block; margin-bottom: 5px; }
+        .ping-indicator { width: 12px; height: 12px; border-radius: 50%; display: inline-block; background: #555; margin-left: 10px; }
+        .ping-active { background: #00ff00; box-shadow: 0 0 10px #00ff00; }
     </style>
 </head>
 <body>
-    <h1>RS485 REMOTE</h1>
-    <button class="btn" onclick="sendFrame()">ENVOYER TRAME</button>
-    <div id="status">Connexion au serveur...</div>
 
-    <script>
-        // Connexion au broker via WebSockets (port 8000 pour HiveMQ)
-        const client = mqtt.connect('wss://broker.hivemq.com:8000/mqtt');
+<div class="controls">
+    <div id="status" style="background: #c0392b;">DÉCONNECTÉ</div>
+    <div class="ping-indicator" id="pingLed"></div>
+    <div class="btn-group">
+        <button class="btn-pct" onclick="setAll(0)">0%</button>
+        <button class="btn-pct" onclick="setAll(64)">25%</button>
+        <button class="btn-pct" onclick="setAll(127)">50%</button>
+        <button class="btn-pct" onclick="setAll(191)">75%</button>
+        <button class="btn-pct" onclick="setAll(255)">100%</button>
+    </div>
+    <button class="btn-send" onclick="sendData()">ENVOYER TRAME RS485</button>
+</div>
 
-        client.on('connect', () => {
-            document.getElementById('status').innerText = "Connecté à Internet ✅";
-            document.getElementById('status').style.color = "#2ecc71";
-        });
+<div class="grid-container" id="sliderGrid"></div>
 
-        function sendFrame() {
-            client.publish('pico/rs485/control', 'SEND_FRAME');
-            console.log("Message envoyé !");
+<script>
+    const TOPIC_CMD = 'p32h/remote/99/cmd';
+    const TOPIC_PONG = 'p32h/remote/99/pong';
+    let values = new Array(32).fill(0);
+
+    // Génération des 32 sliders
+    const grid = document.getElementById('sliderGrid');
+    for (let i = 0; i < 32; i++) {
+        grid.innerHTML += `
+            <div class="slider-card">
+                <small>CH ${i+1}</small><br>
+                <input type="range" min="0" max="255" value="0" id="s${i}" oninput="updateVal(${i}, this.value)">
+                <div id="v${i}">0</div>
+            </div>`;
+    }
+
+    const client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
+        clientId: 'pico_web_' + Math.random().toString(16).substr(2, 8)
+    });
+
+    client.on('connect', () => {
+        document.getElementById('status').innerText = "CONNECTÉ ✅";
+        document.getElementById('status').style.background = "#27ae60";
+        client.subscribe(TOPIC_PONG);
+    });
+
+    // Gestion du Ping/Pong (Retour visuel)
+    client.on('message', (topic, msg) => {
+        if(topic === TOPIC_PONG) {
+            const led = document.getElementById('pingLed');
+            led.classList.add('ping-active');
+            setTimeout(() => led.classList.remove('ping-active'), 500);
         }
-    </script>
+    });
+
+    function updateVal(idx, val) {
+        values[idx] = parseInt(val);
+        document.getElementById(`v${idx}`).innerText = val;
+    }
+
+    function setAll(val) {
+        for(let i=0; i<32; i++) {
+            values[i] = val;
+            document.getElementById(`s${i}`).value = val;
+            document.getElementById(`v${i}`).innerText = val;
+        }
+    }
+
+    function sendData() {
+        // Envoi des 32 valeurs sous forme de chaîne CSV pour simplifier
+        client.publish(TOPIC_CMD, values.join(','));
+    }
+
+    // Ping automatique toutes les 5 secondes
+    setInterval(() => {
+        if(client.connected) client.publish(TOPIC_CMD, 'PING');
+    }, 5000);
+</script>
 </body>
 </html>
