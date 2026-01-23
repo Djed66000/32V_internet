@@ -37,4 +37,125 @@
         .btn-pct { flex: 1; background: var(--orange); color: white; font-weight: bold; border: none; border-radius: 6px; padding: 12px; cursor: pointer; }
         
         .btn-send { background: var(--accent); color: white; width: 100%; margin-top: 15px; padding: 15px; font-size: 1.1em; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
-        .btn-send:disabled { background: #33
+        .btn-send:disabled { background: #333 !important; color: #666 !important; cursor: not-allowed; border: 1px solid #444; }
+
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(85px, 1fr)); gap: 10px; margin-top: 15px; }
+        .slider-card { background: var(--card); padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #333; }
+        input[type=range] { width: 100%; height: 120px; appearance: slider-vertical; cursor: pointer; }
+        .val-display { font-size: 1.1em; font-weight: bold; color: var(--orange); margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="controls">
+    <div class="status-bar">
+        <div class="status-left">
+            <div id="status-label" class="state-offline">VÉRIFICATION...</div>
+            <div class="html-version-tag">WEB v2.1.4</div>
+        </div>
+        
+        <div style="display:flex; align-items:center; gap:10px;">
+            <small id="last-ping" style="color:#888; font-size:0.75em; font-weight: bold;">PICO : VERSION ???</small>
+            <div id="led-ping" class="ping-led"></div>
+        </div>
+    </div>
+
+    <div class="mode-selector">
+        <button id="m100" class="mode-btn mode-active" onclick="setMode(100)">MODE 0-100</button>
+        <button id="m1000" class="mode-btn" onclick="setMode(1000)">MODE 0-1000</button>
+    </div>
+
+    <div class="btn-group">
+        <button class="btn-pct" onclick="quickSet(0)">0%</button>
+        <button class="btn-pct" onclick="quickSet(0.25)">25%</button>
+        <button class="btn-pct" onclick="quickSet(0.5)">50%</button>
+        <button class="btn-pct" onclick="quickSet(0.75)">75%</button>
+        <button class="btn-pct" onclick="quickSet(1)">100%</button>
+    </div>
+    
+    <button id="main-send-btn" class="btn-send" onclick="sendToPico()" disabled>ENVOYER VERS RS485</button>
+</div>
+
+<div id="grid" class="grid-container"></div>
+
+<script>
+    let currentMax = 100; 
+    let values = new Array(32).fill(0);
+    let lastPongTime = 0; 
+    const client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
+
+    function updateStatusUI() {
+        const label = document.getElementById('status-label');
+        const sendBtn = document.getElementById('main-send-btn');
+        const now = Date.now();
+        let isPicoAlive = (now - lastPongTime < 12000); 
+        
+        if (!client.connected) {
+            label.innerText = "SERVEUR ❌";
+            label.className = "state-offline";
+            sendBtn.disabled = true;
+        } else if (!isPicoAlive) {
+            label.innerText = "PICO ⚠️";
+            label.className = "state-warn";
+            sendBtn.disabled = true;
+            document.getElementById('last-ping').innerText = "PICO : HORS LIGNE";
+        } else {
+            label.innerText = "OK ✅";
+            label.className = "state-online";
+            sendBtn.disabled = false;
+        }
+    }
+
+    client.on('connect', () => { client.subscribe('p32h/remote/99/pong'); });
+    
+    client.on('message', (topic, message) => {
+        if(topic === 'p32h/remote/99/pong') {
+            lastPongTime = Date.now();
+            const payload = message.toString();
+            if(payload.includes(':')) {
+                const version = payload.split(':')[1];
+                document.getElementById('last-ping').innerText = "PICO version " + version;
+                document.getElementById('last-ping').style.color = "var(--blue-active)";
+            }
+            const led = document.getElementById('led-ping');
+            led.classList.add('ping-flash');
+            setTimeout(() => led.classList.remove('ping-flash'), 300);
+        }
+    });
+
+    setInterval(updateStatusUI, 1000);
+
+    function setMode(m) {
+        currentMax = m;
+        document.getElementById('m100').className = m === 100 ? 'mode-btn mode-active' : 'mode-btn';
+        document.getElementById('m1000').className = m === 1000 ? 'mode-btn mode-active' : 'mode-btn';
+        createSliders();
+    }
+
+    function createSliders() {
+        const grid = document.getElementById('grid');
+        grid.innerHTML = '';
+        for (let i = 0; i < 32; i++) {
+            values[i] = 0;
+            grid.innerHTML += `
+                <div class="slider-card">
+                    <small>CH ${i+1}</small>
+                    <input type="range" min="0" max="${currentMax}" value="0" oninput="updateVal(${i}, this.value)">
+                    <div id="v${i}" class="val-display">0</div>
+                </div>`;
+        }
+    }
+
+    function updateVal(i, v) { values[i] = parseInt(v); document.getElementById(`v${i}`).innerText = v; }
+    function quickSet(ratio) {
+        const val = Math.round(ratio * currentMax);
+        document.querySelectorAll('input[type=range]').forEach((s, i) => { s.value = val; updateVal(i, val); });
+    }
+    function sendToPico() { if(client.connected && !document.getElementById('main-send-btn').disabled) client.publish('p32h/remote/99/cmd', currentMax + ":" + values.join(',')); }
+    
+    setInterval(() => { if(client.connected) client.publish('p32h/remote/99/cmd', 'PING'); }, 5000);
+    
+    createSliders();
+</script>
+</body>
+</html>
