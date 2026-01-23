@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Pico 2W - v2.1.3 (Diag Pro)</title>
+    <title>Pico 2W - v2.1.3 (Dual Version)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
     <style>
@@ -12,24 +12,31 @@
             --blue-active: #00d2ff; --blue-inactive: #2c3e50;
         }
         body { font-family: sans-serif; background: var(--bg); color: white; margin: 0; padding: 10px; }
+        
         .controls { position: sticky; top: 0; background: var(--bg); padding: 15px; z-index: 100; border-bottom: 2px solid #333; }
         .status-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
+        
         #status-label { padding: 6px 12px; border-radius: 4px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; }
         .state-offline { background: var(--error); }
         .state-online { background: var(--accent); }
         .state-warn { background: var(--warn); color: black; }
+
         .ping-led { width: 14px; height: 14px; border-radius: 50%; background: #222; border: 2px solid #444; }
         .ping-flash { background: #00ff00; box-shadow: 0 0 15px #00ff00; border-color: #fff; }
 
-        /* BOUTONS BLEUS HAUT CONTRASTE */
         .mode-selector { display: flex; gap: 10px; margin-bottom: 15px; }
         .mode-btn { flex: 1; padding: 12px; border: 2px solid transparent; border-radius: 8px; background: var(--blue-inactive); color: #7f8c8d; cursor: pointer; font-weight: bold; }
         .mode-active { background: var(--blue-active); color: #000; border-color: #ffffff; box-shadow: 0 0 15px rgba(0, 210, 255, 0.6); }
 
         .btn-group { display: flex; flex-wrap: wrap; gap: 8px; }
         .btn-pct { flex: 1; background: var(--orange); color: white; font-weight: bold; border: none; border-radius: 6px; padding: 12px; cursor: pointer; }
+        
         .btn-send { background: var(--accent); color: white; width: 100%; margin-top: 15px; padding: 15px; font-size: 1.1em; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
         .btn-send:disabled { background: #333 !important; color: #666 !important; cursor: not-allowed; border: 1px solid #444; }
+
+        /* Style pour les tags de version */
+        .version-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; font-size: 0.65em; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+        .html-ver { color: #888; border-right: 1px solid #333; padding-right: 10px; }
 
         .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(85px, 1fr)); gap: 10px; margin-top: 15px; }
         .slider-card { background: var(--card); padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #333; }
@@ -62,11 +69,17 @@
     </div>
     
     <button id="main-send-btn" class="btn-send" onclick="sendToPico()" disabled>ENVOYER VERS RS485</button>
+    
+    <div class="version-footer">
+        <span class="html-ver">Dashboard v2.1.3</span>
+        <span>RS485 Protocol v1.0</span>
+    </div>
 </div>
 
 <div id="grid" class="grid-container"></div>
 
 <script>
+    const HTML_VERSION = "2.1.3";
     let currentMax = 100; 
     let values = new Array(32).fill(0);
     let lastPongTime = 0; 
@@ -101,7 +114,6 @@
             lastPongTime = Date.now();
             const payload = message.toString();
             
-            // Si le message est "PONG:2.1.3", on extrait "2.1.3"
             if(payload.includes(':')) {
                 const version = payload.split(':')[1];
                 document.getElementById('last-ping').innerText = "PICO version " + version;
@@ -144,7 +156,6 @@
     }
     function sendToPico() { if(client.connected && !document.getElementById('main-send-btn').disabled) client.publish('p32h/remote/99/cmd', currentMax + ":" + values.join(',')); }
     
-    // Ping toutes les 5s
     setInterval(() => { if(client.connected) client.publish('p32h/remote/99/cmd', 'PING'); }, 5000);
     
     createSliders();
